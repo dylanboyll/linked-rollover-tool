@@ -1,22 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linked Rollover Tool — Fieldguide</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-Linked Rollover Tool
-Internal
-1
-Upload Metabase CSV
-2
-Configure & Preview
-3
-Process & Download
-Upload Metabase Export
-Run the rollover query in Metabase with all engagement IDs included, download the CSV, then upload it here.
-📄
-Drop one or more CSVs here, or click to browse
-Exported from Metabase question #7426 — select multiple files to combine
-engagement_id
-request_id
-request_identifier
-request_description
-request_title
-request_tags
-row_key
-workplan_row_id
+    :root {
+      --fg-blue: #2563eb;
+      --fg-blue-light: #eff6ff;
+      --fg-blue-border: #bfdbfe;
+      --fg-green: #16a34a;
+      --fg-green-light: #f0fdf4;
+      --fg-green-border: #bbf7d0;
+      --fg-red: #dc2626;
+      --fg-red-light: #fef2f2;
+      --fg-red-border: #fecaca;
+      --fg-yellow: #ca8a04;
+      --fg-yellow-light: #fefce8;
+      --fg-yellow-border: #fde68a;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--gray-800);
+      background: var(--gray-50);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-logo {
+      width: 28px; height: 28px;
+      background: var(--fg-blue);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .header-logo svg { color: white; }
+    .header-title { font-weight: 600; font-size: 15px; color: var(--gray-900); }
+    .header-badge {
+      font-size: 11px; font-weight: 500;
+      background: var(--fg-blue-light); color: var(--fg-blue);
+      border: 1px solid var(--fg-blue-border);
+      border-radius: 4px; padding: 2px 7px;
+      margin-left: 4px;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+    /* ── Step Progress Bar ── */
+    .steps {
+      display: flex; gap: 0; margin-bottom: 32px;
+      background: white; border-radius: var(--radius);
+      border: 1px solid var(--gray-200); overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .step-item {
+      flex: 1; padding: 14px 16px;
+      display: flex; align-items: center; gap: 10px;
+      border-right: 1px solid var(--gray-200);
+      cursor: default;
+    }
+    .step-item:last-child { border-right: none; }
+    .step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      background: var(--gray-200); color: var(--gray-500);
+    }
+    .step-label { font-size: 12px; font-weight: 500; color: var(--gray-500); line-height: 1.3; }
+    .step-item.active .step-num { background: var(--fg-blue); color: white; }
+    .step-item.active .step-label { color: var(--gray-800); }
+    .step-item.done .step-num { background: var(--fg-green); color: white; }
+    .step-item.done .step-label { color: var(--gray-500); }
+
+    /* ── Card ── */
+    .card {
+      background: white; border-radius: var(--radius);
+      border: 1px solid var(--gray-200);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 20px 24px 0;
+    }
+    .card-title { font-size: 16px; font-weight: 600; color: var(--gray-900); margin-bottom: 4px; }
+    .card-subtitle { font-size: 13px; color: var(--gray-500); line-height: 1.5; }
+    .card-body { padding: 20px 24px 24px; }
+
+    /* ── Upload Zone ── */
+    .upload-zone {
+      border: 2px dashed var(--gray-300);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .15s;
+      background: var(--gray-50);
+      margin-top: 16px;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--fg-blue);
+      background: var(--fg-blue-light);
+    }
+    .upload-icon { font-size: 36px; margin-bottom: 12px; }
+    .upload-main { font-weight: 600; color: var(--gray-700); margin-bottom: 4px; }
+    .upload-sub { font-size: 12px; color: var(--gray-500); }
+    .upload-cols {
+      margin-top: 16px; display: flex; flex-wrap: wrap;
+      gap: 6px; justify-content: center;
+    }
+    .col-badge {
+      font-size: 11px; font-family: monospace;
+      background: var(--gray-100); color: var(--gray-600);
+      border: 1px solid var(--gray-200);
+      border-radius: 4px; padding: 2px 6px;
+    }
+    #fileInput { display: none; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      border: none; cursor: pointer; transition: all .15s;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--fg-blue); color: white;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; }
+    .btn-secondary {
+      background: white; color: var(--gray-700);
+      border: 1px solid var(--gray-300);
+    }
+    .btn-secondary:hover { background: var(--gray-50); }
+    .btn-success {
+      background: var(--fg-green); color: white;
+    }
+    .btn-success:hover { background: #15803d; }
+    .btn-row {
+      display: flex; gap: 8px; align-items: center;
+      margin-top: 20px; justify-content: flex-end;
+    }
+
+    /* ── Alerts ── */
+    .alert {
+      border-radius: var(--radius); padding: 12px 16px;
+      font-size: 13px; line-height: 1.5; margin-top: 16px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .alert-info { background: var(--fg-blue-light); border: 1px solid var(--fg-blue-border); color: #1e40af; }
+    .alert-success { background: var(--fg-green-light); border: 1px solid var(--fg-green-border); color: #166534; }
+    .alert-warning { background: var(--fg-yellow-light); border: 1px solid var(--fg-yellow-border); color: #854d0e; }
+    .alert-error { background: var(--fg-red-light); border: 1px solid var(--fg-red-border); color: #991b1b; }
+
+    /* ── Form elements ── */
+    label.field-label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: var(--gray-600); margin-bottom: 6px; text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    select.field-select {
+      width: 100%; padding: 8px 12px; border-radius: 6px;
+      border: 1px solid var(--gray-300); font-size: 13px;
+      color: var(--gray-800); background: white;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 30px;
+    }
+    select.field-select:focus { outline: none; border-color: var(--fg-blue); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+
+    .checkbox-group { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+    .checkbox-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; border-radius: 6px;
+      border: 1px solid var(--gray-200); background: var(--gray-50);
+      cursor: pointer; transition: all .1s;
+    }
+    .checkbox-item:hover { border-color: var(--fg-blue); background: var(--fg-blue-light); }
+    .checkbox-item input[type="checkbox"] { margin-top: 1px; flex-shrink: 0; accent-color: var(--fg-blue); }
+    .checkbox-item-text {}
+    .checkbox-item-label { font-weight: 500; color: var(--gray-800); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+    .checkbox-item-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+    .tag-required {
+      font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+      background: var(--fg-blue); color: white;
+    }
+    .tag-optional {
+      font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+      background: var(--gray-200); color: var(--gray-600);
+    }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: white; border-radius: var(--radius);
+      border: 1px solid var(--gray-200); padding: 14px 16px;
+      box-shadow: var(--shadow);
+    }
+    .stat-value { font-size: 24px; font-weight: 700; color: var(--gray-900); }
+    .stat-label { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+    .stat-card.green .stat-value { color: var(--fg-green); }
+    .stat-card.red .stat-value { color: var(--fg-red); }
+    .stat-card.yellow .stat-value { color: var(--fg-yellow); }
+    .stat-card.blue .stat-value { color: var(--fg-blue); }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--gray-200); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead tr { background: var(--gray-50); }
+    th {
+      padding: 10px 12px; text-align: left;
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--gray-500);
+      border-bottom: 1px solid var(--gray-200);
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 12px; border-bottom: 1px solid var(--gray-100);
+      color: var(--gray-700); max-width: 220px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--gray-50); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 500; padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .badge-green { background: var(--fg-green-light); color: var(--fg-green); border: 1px solid var(--fg-green-border); }
+    .badge-red { background: var(--fg-red-light); color: var(--fg-red); border: 1px solid var(--fg-red-border); }
+    .badge-yellow { background: var(--fg-yellow-light); color: var(--fg-yellow); border: 1px solid var(--fg-yellow-border); }
+    .badge-gray { background: var(--gray-100); color: var(--gray-500); border: 1px solid var(--gray-200); }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-200); margin-bottom: 16px; }
+    .tab-btn {
+      padding: 8px 16px; font-size: 13px; font-weight: 500;
+      color: var(--gray-500); cursor: pointer; border: none;
+      background: none; border-bottom: 2px solid transparent;
+      margin-bottom: -1px; transition: all .1s;
+    }
+    .tab-btn:hover { color: var(--gray-800); }
+    .tab-btn.active { color: var(--fg-blue); border-bottom-color: var(--fg-blue); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Section divider ── */
+    .section-divider {
+      border: none; border-top: 1px solid var(--gray-200);
+      margin: 20px 0;
+    }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+    /* ── Preview table ── */
+    .preview-label {
+      font-size: 12px; font-weight: 600; color: var(--gray-600);
+      text-transform: uppercase; letter-spacing: .05em;
+      margin-bottom: 8px;
+    }
+
+    /* ── Utility ── */
+    .hidden { display: none !important; }
+    .text-sm { font-size: 12px; }
+    .text-muted { color: var(--gray-500); }
+    .mt-12 { margin-top: 12px; }
+    .mt-16 { margin-top: 16px; }
+    .mt-20 { margin-top: 20px; }
+    .mono { font-family: monospace; font-size: 11px; }
+
+    /* ── Unmatched warning detail ── */
+    .unmatched-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--gray-100);
+      display: grid; grid-template-columns: 80px 1fr 1fr;
+      gap: 8px; align-items: start;
+      font-size: 12px;
+    }
+    .unmatched-item:last-child { border-bottom: none; }
+    .unmatched-item-eng { font-weight: 500; color: var(--gray-700); font-family: monospace; }
+    .unmatched-item-title { color: var(--gray-700); }
+    .unmatched-item-id { color: var(--gray-500); font-family: monospace; font-size: 11px; }
+
+    /* loading state */
+    .spinner {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid var(--gray-200);
+      border-top-color: var(--fg-blue);
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Step panels ── */
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-logo">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+    </svg>
+  </div>
+  <span class="header-title">Linked Rollover Tool</span>
+  <span class="header-badge">Internal</span>
+</header>
+
+<div class="container">
+
+  <!-- Step progress -->
+  <div class="steps" id="stepProgress">
+    <div class="step-item active" id="stepIndicator1">
+      <div class="step-num">1</div>
+      <div class="step-label">Upload Metabase CSV</div>
+    </div>
+    <div class="step-item" id="stepIndicator2">
+      <div class="step-num">2</div>
+      <div class="step-label">Configure & Preview</div>
+    </div>
+    <div class="step-item" id="stepIndicator3">
+      <div class="step-num">3</div>
+      <div class="step-label">Process & Download</div>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 1: Upload ═══ -->
+  <div class="step-panel active" id="step1">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Upload Metabase Export</div>
+        <div class="card-subtitle">
+          Run the rollover query in Metabase with all engagement IDs included, download the CSV, then upload it here.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📄</div>
+          <div class="upload-main">Drop one or more CSVs here, or click to browse</div>
+          <div class="upload-sub">Exported from Metabase question #7426 — select multiple files to combine</div>
+          <div class="upload-cols">
+            <span class="col-badge">engagement_id</span>
+            <span class="col-badge">request_id</span>
+            <span class="col-badge">request_identifier</span>
+            <span class="col-badge">request_description</span>
+            <span class="col-badge">request_title</span>
+            <span class="col-badge">request_tags</span>
+            <span class="col-badge">row_key</span>
+            <span class="col-badge">workplan_row_id</span>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".csv" multiple />
+
+        <div id="uploadError" class="alert alert-error hidden">
+          <span class="alert-icon">⚠️</span>
+          <span id="uploadErrorMsg"></span>
+        </div>
+        <div id="uploadSuccess" class="alert alert-success hidden" style="justify-content:space-between;">
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <span class="alert-icon">✅</span>
+            <span id="uploadSuccessMsg"></span>
+          </div>
+          <button onclick="clearFiles()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#166534;text-decoration:underline;white-space:nowrap;flex-shrink:0;padding:0;">Clear all</button>
+        </div>
+
+        <div id="previewSection" class="hidden">
+          <hr class="section-divider" />
+          <div class="preview-label">Preview (first 5 rows)</div>
+          <div class="table-wrap">
+            <table id="previewTable"></table>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="toStep2Btn" onclick="goToStep2()">
+              Continue to Configure →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 2: Configure ═══ -->
+  <div class="step-panel" id="step2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Configure Merge Settings</div>
+        <div class="card-subtitle">
+          Select the master engagement and define how child requests should be matched to master requests.
+        </div>
+      </div>
+      <div class="card-body">
+
+        <div class="form-grid">
+          <!-- Master engagement picker -->
+          <div>
+            <label class="field-label" for="masterSelect">Master Engagement ID</label>
+            <select class="field-select" id="masterSelect">
+              <option value="">— Select master engagement —</option>
+            </select>
+            <div class="text-sm text-muted mt-12">
+              The consolidated engagement, or the one with the most shared requests.
+            </div>
+            <div id="masterInfo" class="alert alert-info mt-12 hidden">
+              <span class="alert-icon">ℹ️</span>
+              <span id="masterInfoText"></span>
+            </div>
+          </div>
+
+          <!-- Matching criteria -->
+          <div>
+            <label class="field-label">Matching Criteria</label>
+            <div class="checkbox-group">
+              <label class="checkbox-item">
+                <input type="checkbox" id="matchIdentifier" checked disabled />
+                <div class="checkbox-item-text">
+                  <div class="checkbox-item-label">
+                    Request Identifier
+                    <span class="tag-required">Required</span>
+                  </div>
+                  <div class="checkbox-item-sub">The front-end request ID (e.g. R-001)</div>
+                </div>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="matchTitle" checked />
+                <div class="checkbox-item-text">
+                  <div class="checkbox-item-label">
+                    Request Title
+                    <span class="tag-required">Required</span>
+                  </div>
+                  <div class="checkbox-item-sub">Display title of the request</div>
+                </div>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="matchDescription" checked disabled />
+                <div class="checkbox-item-text">
+                  <div class="checkbox-item-label">
+                    Request Description
+                    <span class="tag-required">Required</span>
+                  </div>
+                  <div class="checkbox-item-sub">Always included in matching alongside identifier and title</div>
+                </div>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="matchTags" />
+                <div class="checkbox-item-text">
+                  <div class="checkbox-item-label">
+                    Request Tags
+                    <span class="tag-optional">Optional</span>
+                  </div>
+                  <div class="checkbox-item-sub">Only enable if identical requests have different tags</div>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <hr class="section-divider" />
+
+        <!-- Engagement summary table -->
+        <div class="preview-label">Engagements in this export</div>
+        <div class="table-wrap">
+          <table id="engagementSummaryTable"></table>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goToStep1()">← Back</button>
+          <button class="btn btn-primary" id="processBtn" onclick="processData()" disabled>
+            Run Merge →
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 3: Results ═══ -->
+  <div class="step-panel" id="step3">
+    <div id="resultsSection">
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card blue">
+          <div class="stat-value" id="statTotal">—</div>
+          <div class="stat-label">Child rows total</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-value" id="statMatched">—</div>
+          <div class="stat-label">Matched ✓</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-value" id="statUnmatched">—</div>
+          <div class="stat-label">Unmatched ✗</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statChildEngs">—</div>
+          <div class="stat-label">Child engagements</div>
+        </div>
+      </div>
+
+      <!-- Warning for unmatched -->
+      <div id="unmatchedAlert" class="alert alert-warning hidden">
+        <div>
+          <span class="alert-icon">⚠️</span>
+          <strong>Some requests could not be matched to the master.</strong><br/>
+          These rows are excluded from the upload CSV. Before uploading, review the "Unmatched" tab below and manually link these requests if needed.
+        </div>
+      </div>
+
+      <div id="allMatchedAlert" class="alert alert-success hidden">
+        <span class="alert-icon">🎉</span>
+        All child requests were successfully matched to master requests. Your upload CSV is ready.
+      </div>
+
+      <div class="card mt-20">
+        <div class="card-body">
+          <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('matched')">
+              Matched rows <span id="matchedTabCount" style="margin-left:4px;"></span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('unmatched')" id="unmatchedTabBtn">
+              Unmatched <span id="unmatchedTabCount" style="margin-left:4px;"></span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('master')">Master rows</button>
+          </div>
+
+          <!-- Matched -->
+          <div class="tab-content active" id="tabMatched">
+            <div class="preview-label">Upload CSV preview — these rows will be in your download</div>
+            <div class="table-wrap">
+              <table id="matchedTable"></table>
+            </div>
+          </div>
+
+          <!-- Unmatched -->
+          <div class="tab-content" id="tabUnmatched">
+            <div class="alert alert-warning" style="margin-bottom:12px;">
+              <span class="alert-icon">⚠️</span>
+              <div>These child rows had no matching request in the master engagement. They are <strong>not included</strong> in the upload CSV.
+              You may need to manually link these in the platform before or after upload.</div>
+            </div>
+            <div class="table-wrap">
+              <table id="unmatchedTable"></table>
+            </div>
+          </div>
+
+          <!-- Master -->
+          <div class="tab-content" id="tabMaster">
+            <div class="alert alert-info" style="margin-bottom:12px;">
+              <span class="alert-icon">ℹ️</span>
+              These are the master engagement's requests used as the lookup source. Master rows are not included in the upload CSV.
+            </div>
+            <div class="table-wrap">
+              <table id="masterTable"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Download -->
+      <div class="card mt-20">
+        <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div>
+            <div style="font-weight:600; font-size:14px; color:var(--gray-900);">Ready to download</div>
+            <div class="text-sm text-muted mt-12">
+              Upload this CSV in any child engagement → Utilities → Bulk Link Requests to Rows
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex-shrink:0;">
+            <button class="btn btn-secondary" onclick="goToStep2()">← Back</button>
+            <button class="btn btn-success" id="downloadBtn" onclick="downloadCSV()">
+              ⬇ Download Upload CSV
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- QA checklist -->
+      <div class="card mt-20">
+        <div class="card-header">
+          <div class="card-title" style="font-size:14px;">✅ Post-Upload Quality Check (Step 6 of the runbook)</div>
+        </div>
+        <div class="card-body">
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:13px;">
+              <input type="checkbox" style="margin-top:2px; accent-color:var(--fg-blue);" />
+              Open each child engagement → Requests tab → confirm each "draft" request has a matching "open" request
+            </label>
+            <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:13px;">
+              <input type="checkbox" style="margin-top:2px; accent-color:var(--fg-blue);" />
+              Compare total # of open requests to previous year's engagement count — they should match
+            </label>
+            <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:13px;">
+              <input type="checkbox" style="margin-top:2px; accent-color:var(--fg-blue);" />
+              For any unmatched requests above, manually link them via "link request → other engagements"
+            </label>
+            <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:13px;">
+              <input type="checkbox" style="margin-top:2px; accent-color:var(--fg-blue);" />
+              Once confirmed, delete all "draft" status requests and remove the blank placeholder row
+            </label>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════
+let rawRows = [];          // all parsed CSV rows (accumulates across uploads)
+let loadedFiles = [];      // filenames loaded so far
+let masterEngId = null;    // selected master engagement_id
+let matchedRows = [];      // processed output rows
+let unmatchedRows = [];    // child rows with no master match
+let masterRows = [];       // master engagement rows
+
+const REQUIRED_COLS = [
+  'engagement_id', 'request_id', 'request_identifier',
+  'request_description', 'request_title', 'request_tags',
+  'row_key', 'workplan_row_id'
+];
+
+// ════════════════════════════════════════════════════
+// Step navigation helpers
+// ════════════════════════════════════════════════════
+function setStep(n) {
+  [1, 2, 3].forEach(i => {
+    document.getElementById(`step${i}`).classList.toggle('active', i === n);
+    const ind = document.getElementById(`stepIndicator${i}`);
+    ind.classList.remove('active', 'done');
+    if (i === n) ind.classList.add('active');
+    else if (i < n) ind.classList.add('done');
+  });
+}
+
+function goToStep1() { setStep(1); }
+function goToStep2() { setStep(2); }
+
+// ════════════════════════════════════════════════════
+// Upload handling
+// ════════════════════════════════════════════════════
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) handleFiles(Array.from(e.dataTransfer.files));
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length) handleFiles(Array.from(e.target.files)); });
+
+function handleFiles(files) {
+  const csvFiles = files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+  if (csvFiles.length === 0) {
+    showUploadError('Please upload one or more .csv files.');
+    return;
+  }
+  if (csvFiles.length < files.length) {
+    const skipped = files.length - csvFiles.length;
+    console.warn(`Skipped ${skipped} non-CSV file(s).`);
+  }
+
+  let allRows = [];
+  let completed = 0;
+  const fileNames = [];
+
+  csvFiles.forEach(file => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const cols = result.meta.fields || [];
+        const missing = REQUIRED_COLS.filter(c => !cols.includes(c));
+        if (missing.length) {
+          showUploadError(`"${file.name}" is missing required columns: ${missing.join(', ')}`);
+          return;
+        }
+        allRows = allRows.concat(result.data);
+        fileNames.push(`${file.name} (${result.data.length} rows)`);
+        completed++;
+        if (completed === csvFiles.length) {
+          if (allRows.length === 0) {
+            showUploadError('The uploaded CSV(s) have no data rows.');
+            return;
+          }
+          rawRows = rawRows.concat(allRows);
+          loadedFiles = loadedFiles.concat(fileNames);
+          onUploadSuccess(loadedFiles, rawRows);
+        }
+      },
+      error: (err) => showUploadError(`Parse error in "${file.name}": ${err.message}`)
+    });
+  });
+}
+
+function handleFile(file) { handleFiles([file]); }
+
+function showUploadError(msg) {
+  document.getElementById('uploadError').classList.remove('hidden');
+  document.getElementById('uploadErrorMsg').textContent = msg;
+  document.getElementById('uploadSuccess').classList.add('hidden');
+  document.getElementById('previewSection').classList.add('hidden');
+}
+
+function clearFiles() {
+  rawRows = [];
+  loadedFiles = [];
+  document.getElementById('uploadSuccess').classList.add('hidden');
+  document.getElementById('uploadError').classList.add('hidden');
+  document.getElementById('previewSection').classList.add('hidden');
+  document.getElementById('fileInput').value = '';
+}
+
+function onUploadSuccess(fileNames, rows) {
+  const names = Array.isArray(fileNames) ? fileNames : [fileNames];
+  document.getElementById('uploadError').classList.add('hidden');
+  document.getElementById('uploadSuccess').classList.remove('hidden');
+  document.getElementById('uploadSuccessMsg').innerHTML =
+    names.length === 1
+      ? `✓ Loaded <strong>${rows.length} rows</strong> from "${names[0]}"`
+      : `✓ <strong>${rows.length} rows</strong> loaded from ${names.length} file(s):<br><span style="font-size:11px;opacity:.8;">${names.join(' · ')}</span>`;
+  document.getElementById('previewSection').classList.remove('hidden');
+
+  // Render preview table (first 5 rows)
+  renderTable('previewTable', rows.slice(0, 5), REQUIRED_COLS);
+
+  // Populate engagement selector
+  populateEngagementSelector(rows);
+  renderEngagementSummary(rows);
+}
+
+// ════════════════════════════════════════════════════
+// Step 2: Configure
+// ════════════════════════════════════════════════════
+function populateEngagementSelector(rows) {
+  const counts = countByField(rows, 'engagement_id');
+  const engIds = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const autoId = engIds[0] || null;
+
+  const sel = document.getElementById('masterSelect');
+  sel.innerHTML = '';
+  engIds.forEach(id => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = `${id}  (${counts[id]} rows)`;
+    sel.appendChild(opt);
+  });
+
+  if (!sel.dataset.listenerAttached) {
+    sel.addEventListener('change', onMasterChange);
+    sel.dataset.listenerAttached = 'true';
+  }
+
+  if (autoId) {
+    sel.value = autoId;
+    masterEngId = autoId;
+    document.getElementById('processBtn').disabled = false;
+
+    const total = Object.values(counts).reduce((a,b)=>a+b,0);
+    const masterCount = counts[autoId] || 0;
+    const childCount = total - masterCount;
+    const childEngs = engIds.filter(e => e !== autoId).length;
+
+    document.getElementById('masterInfoText').innerHTML =
+      `<strong>Auto-selected</strong> — engagement <code style="font-family:monospace;font-size:12px;">${esc(autoId)}</code> has the most rows (${masterCount}). ` +
+      `${childEngs} child engagement(s) with ${childCount} rows to process. ` +
+      `<span style="opacity:.8;">Use the dropdown above to override if needed.</span>`;
+    document.getElementById('masterInfo').classList.remove('hidden');
+    renderEngagementSummary(rows);
+  }
+}
+
+function renderEngagementSummary(rows) {
+  const counts = countByField(rows, 'engagement_id');
+  const engIds = Object.keys(counts).sort();
+  const tbl = document.getElementById('engagementSummaryTable');
+  tbl.innerHTML = '';
+  const head = `<thead><tr><th>Engagement ID</th><th>Row Count</th><th>Role</th></tr></thead>`;
+  let body = '<tbody>';
+  engIds.forEach(id => {
+    const role = id === (document.getElementById('masterSelect').value)
+      ? `<span class="badge badge-green">Master</span>`
+      : `<span class="badge badge-gray">Child</span>`;
+    body += `<tr><td class="mono">${esc(id)}</td><td>${counts[id]}</td><td>${role}</td></tr>`;
+  });
+  body += '</tbody>';
+  tbl.innerHTML = head + body;
+}
+
+function onMasterChange() {
+  const val = document.getElementById('masterSelect').value;
+  masterEngId = val || null;
+  document.getElementById('processBtn').disabled = !masterEngId;
+
+  if (masterEngId) {
+    const counts = countByField(rawRows, 'engagement_id');
+    const autoId = Object.keys(counts).sort((a,b) => counts[b]-counts[a])[0];
+    const isOverride = masterEngId !== autoId;
+
+    const total = Object.values(counts).reduce((a,b)=>a+b,0);
+    const masterCount = counts[masterEngId] || 0;
+    const childCount = total - masterCount;
+    const childEngs = Object.keys(counts).filter(e => e !== masterEngId).length;
+
+    const prefix = isOverride
+      ? `<strong>Manually selected</strong> — overriding auto-selection. `
+      : `<strong>Auto-selected</strong> — `;
+
+    document.getElementById('masterInfoText').innerHTML =
+      `${prefix}Engagement <code style="font-family:monospace;font-size:12px;">${esc(masterEngId)}</code>: ` +
+      `${masterCount} rows | ${childEngs} child engagement(s) with ${childCount} rows to process.`;
+    document.getElementById('masterInfo').classList.remove('hidden');
+    renderEngagementSummary(rawRows);
+  } else {
+    document.getElementById('masterInfo').classList.add('hidden');
+  }
+}
+
+// ════════════════════════════════════════════════════
+// Core merge logic
+// ════════════════════════════════════════════════════
+function normalize(str) {
+  return (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+function buildKey(row) {
+  const parts = [
+    normalize(row.request_identifier),
+    normalize(row.request_description),
+  ];
+  if (document.getElementById('matchTitle').checked) parts.push(normalize(row.request_title));
+  if (document.getElementById('matchTags').checked)  parts.push(normalize(row.request_tags));
+  return parts.join('|||');
+}
+
+function processData() {
+  if (!masterEngId) return;
+
+  masterRows   = rawRows.filter(r => String(r.engagement_id).trim() === masterEngId);
+  const childAll = rawRows.filter(r => String(r.engagement_id).trim() !== masterEngId);
+
+  const masterLookup = new Map();
+  masterRows.forEach(row => {
+    const key = buildKey(row);
+    if (!masterLookup.has(key)) masterLookup.set(key, row);
+  });
+
+  matchedRows   = [];
+  unmatchedRows = [];
+
+  childAll.forEach(childRow => {
+    if (!childRow.workplan_row_id || String(childRow.workplan_row_id).trim() === '') {
+      unmatchedRows.push({ ...childRow, _reason: 'No workplan_row_id — ensure all requests are tied to a sheet row first' });
+      return;
+    }
+    const key = buildKey(childRow);
+    const masterMatch = masterLookup.get(key);
+    if (masterMatch) {
+      matchedRows.push({
+        _childRow: childRow,
+        workplan_row_id: childRow.workplan_row_id,
+        request_id: masterMatch.request_id,
+        _eng: childRow.engagement_id,
+        _title: childRow.request_title,
+        _identifier: childRow.request_identifier,
+        _master_request_id: masterMatch.request_id,
+        _row_key: childRow.row_key,
+      });
+    } else {
+      unmatchedRows.push({ ...childRow, _reason: 'No matching master request found' });
+    }
+  });
+
+  renderResults();
+  setStep(3);
+}
+
+// ════════════════════════════════════════════════════
+// Render results
+// ════════════════════════════════════════════════════
+function renderResults() {
+  const childEngs = new Set(matchedRows.map(r => r._eng));
+
+  document.getElementById('statTotal').textContent     = matchedRows.length + unmatchedRows.length;
+  document.getElementById('statMatched').textContent   = matchedRows.length;
+  document.getElementById('statUnmatched').textContent = unmatchedRows.length;
+  document.getElementById('statChildEngs').textContent = childEngs.size;
+
+  document.getElementById('unmatchedAlert').classList.toggle('hidden', unmatchedRows.length === 0);
+  document.getElementById('allMatchedAlert').classList.toggle('hidden', unmatchedRows.length !== 0);
+
+  document.getElementById('matchedTabCount').innerHTML =
+    `<span class="badge badge-green">${matchedRows.length}</span>`;
+  document.getElementById('unmatchedTabCount').innerHTML =
+    unmatchedRows.length > 0
+      ? `<span class="badge badge-red">${unmatchedRows.length}</span>`
+      : `<span class="badge badge-gray">0</span>`;
+
+  renderTable('matchedTable',
+    matchedRows.slice(0, 100).map(r => ({
+      'Workplan Row ID': r.workplan_row_id,
+      'Request ID': r.request_id,
+      'Engagement ID': r._eng,
+      'Row Key': r._row_key,
+      'Request Identifier': r._identifier,
+      'Request Title': r._title,
+    })),
+    ['Workplan Row ID', 'Request ID', 'Engagement ID', 'Row Key', 'Request Identifier', 'Request Title']
+  );
+
+  renderTable('unmatchedTable',
+    unmatchedRows.slice(0, 100).map(r => ({
+      'Engagement ID': r.engagement_id,
+      'Request Identifier': r.request_identifier,
+      'Request Title': r.request_title,
+      'Workplan Row ID': r.workplan_row_id,
+      'Row Key': r.row_key,
+      'Reason': r._reason,
+    })),
+    ['Engagement ID', 'Request Identifier', 'Request Title', 'Workplan Row ID', 'Row Key', 'Reason']
+  );
+
+  renderTable('masterTable',
+    masterRows.slice(0, 100).map(r => ({
+      'Request ID': r.request_id,
+      'Request Identifier': r.request_identifier,
+      'Request Title': r.request_title,
+      'Request Description': r.request_description,
+      'Workplan Row ID': r.workplan_row_id,
+    })),
+    ['Request ID', 'Request Identifier', 'Request Title', 'Request Description', 'Workplan Row ID']
+  );
+}
+
+// ════════════════════════════════════════════════════
+// Download
+// ════════════════════════════════════════════════════
+function downloadCSV() {
+  const uploadRows = matchedRows.map(r => ({
+    'Workplan Row ID': r.workplan_row_id,
+    'Request ID': r.request_id,
+  }));
+  const csv = Papa.unparse(uploadRows, { header: true });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `rollover_upload_${masterEngId}_${today()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════════════════════
+// Tab switcher
+// ════════════════════════════════════════════════════
+function switchTab(name) {
+  ['matched','unmatched','master'].forEach(t => {
+    document.getElementById(`tab${cap(t)}`).classList.toggle('active', t === name);
+  });
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', ['matched','unmatched','master'][i] === name);
+  });
+}
+
+// ════════════════════════════════════════════════════
+// Generic table renderer
+// ════════════════════════════════════════════════════
+function renderTable(id, rows, cols) {
+  const tbl = document.getElementById(id);
+  if (!rows || rows.length === 0) {
+    tbl.innerHTML = '<thead></thead><tbody><tr><td colspan="99" style="text-align:center;color:var(--gray-400);padding:24px;">No rows</td></tr></tbody>';
+    return;
+  }
+  let head = '<thead><tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead>';
+  let body = '<tbody>';
+  rows.forEach(row => {
+    body += '<tr>' + cols.map(c => {
+      const v = row[c] ?? '';
+      return `<td title="${esc(String(v))}">${esc(String(v))}</td>`;
+    }).join('') + '</tr>';
+  });
+  body += '</tbody>';
+  tbl.innerHTML = head + body;
+}
+
+// ════════════════════════════════════════════════════
+// Helpers
+// ════════════════════════════════════════════════════
+function countByField(rows, field) {
+  const counts = {};
+  rows.forEach(r => {
+    const v = String(r[field] || '').trim();
+    counts[v] = (counts[v] || 0) + 1;
+  });
+  return counts;
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function cap(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
+
+function today() {
+  return new Date().toISOString().slice(0,10);
+}
+</script>
+</body>
+</html>
