@@ -776,7 +776,7 @@ function onUploadSuccess(fileNames, rows) {
 // Step 2: Configure
 // ════════════════════════════════════════════════════
 function populateEngagementSelector(rows) {
-  const counts = countByField(rows, 'engagement_id');
+  const counts = countRequestsByEngagement(rows);
   const engIds = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   const autoId = engIds[0] || null;
 
@@ -785,7 +785,7 @@ function populateEngagementSelector(rows) {
   engIds.forEach(id => {
     const opt = document.createElement('option');
     opt.value = id;
-    opt.textContent = `${id}  (${counts[id]} rows)`;
+    opt.textContent = `${id}  (${counts[id]} requests)`;
     sel.appendChild(opt);
   });
 
@@ -805,8 +805,8 @@ function populateEngagementSelector(rows) {
     const childEngs = engIds.filter(e => e !== autoId).length;
 
     document.getElementById('masterInfoText').innerHTML =
-      `<strong>Auto-selected</strong> — engagement <code style="font-family:monospace;font-size:12px;">${esc(autoId)}</code> has the most rows (${masterCount}). ` +
-      `${childEngs} child engagement(s) with ${childCount} rows to process. ` +
+      `<strong>Auto-selected</strong> — engagement <code style="font-family:monospace;font-size:12px;">${esc(autoId)}</code> has the most requests (${masterCount}). ` +
+      `${childEngs} child engagement(s) with ${childCount} requests to process. ` +
       `<span style="opacity:.8;">Use the dropdown above to override if needed.</span>`;
     document.getElementById('masterInfo').classList.remove('hidden');
     renderEngagementSummary(rows);
@@ -814,11 +814,11 @@ function populateEngagementSelector(rows) {
 }
 
 function renderEngagementSummary(rows) {
-  const counts = countByField(rows, 'engagement_id');
+  const counts = countRequestsByEngagement(rows);
   const engIds = Object.keys(counts).sort();
   const tbl = document.getElementById('engagementSummaryTable');
   tbl.innerHTML = '';
-  const head = `<thead><tr><th>Engagement ID</th><th>Row Count</th><th>Role</th></tr></thead>`;
+  const head = `<thead><tr><th>Engagement ID</th><th>Request Count</th><th>Role</th></tr></thead>`;
   let body = '<tbody>';
   engIds.forEach(id => {
     const role = id === (document.getElementById('masterSelect').value)
@@ -836,7 +836,7 @@ function onMasterChange() {
   document.getElementById('processBtn').disabled = !masterEngId;
 
   if (masterEngId) {
-    const counts = countByField(rawRows, 'engagement_id');
+    const counts = countRequestsByEngagement(rawRows);
     const autoId = Object.keys(counts).sort((a,b) => counts[b]-counts[a])[0];
     const isOverride = masterEngId !== autoId;
 
@@ -851,7 +851,7 @@ function onMasterChange() {
 
     document.getElementById('masterInfoText').innerHTML =
       `${prefix}Engagement <code style="font-family:monospace;font-size:12px;">${esc(masterEngId)}</code>: ` +
-      `${masterCount} rows | ${childEngs} child engagement(s) with ${childCount} rows to process.`;
+      `${masterCount} requests | ${childEngs} child engagement(s) with ${childCount} requests to process.`;
     document.getElementById('masterInfo').classList.remove('hidden');
     renderEngagementSummary(rawRows);
   } else {
@@ -1035,6 +1035,21 @@ function countByField(rows, field) {
     const v = String(r[field] || '').trim();
     counts[v] = (counts[v] || 0) + 1;
   });
+  return counts;
+}
+
+function countRequestsByEngagement(rows) {
+  // Count unique request_ids per engagement_id
+  const sets = {};
+  rows.forEach(r => {
+    const eng = String(r['engagement_id'] || '').trim();
+    const req = String(r['request_id'] || '').trim();
+    if (!eng) return;
+    if (!sets[eng]) sets[eng] = new Set();
+    if (req) sets[eng].add(req);
+  });
+  const counts = {};
+  Object.keys(sets).forEach(eng => { counts[eng] = sets[eng].size; });
   return counts;
 }
 
