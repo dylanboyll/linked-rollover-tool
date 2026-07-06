@@ -28,7 +28,9 @@ app.post('/api/mb/session', async (req, res) => {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(req.body)
     });
-    const data = await r.json();
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) { data = {message: text}; }
     res.status(r.status).json(data);
   } catch (err) {
     res.status(500).json({message: err.message});
@@ -45,7 +47,9 @@ app.post('/api/mb/dataset', async (req, res) => {
       headers: {'Content-Type': 'application/json', 'X-Metabase-Session': session},
       body: JSON.stringify(req.body)
     });
-    const data = await r.json();
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) { data = {message: text}; }
     res.status(r.status).json(data);
   } catch (err) {
     res.status(500).json({message: err.message});
