@@ -388,7 +388,7 @@ async function callMetabase(database_id, sql) {
   const res = await fetch('/api/mb/dataset', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-Metabase-Session': _mbSession},
-    body: JSON.stringify({database: database_id, type: 'native', native: {query: sql}, middleware: {'js-int-to-string?': true}})
+    body: JSON.stringify({database: database_id, type: 'native', native: {query: sql}, middleware: {'js-int-to-string?': true, 'add-default-userland-constraints?': false}, constraints: {'max-results': 1000000, 'max-results-bare-rows': 1000000}})
   });
   if (res.status === 401) {
     _mbSession = null;
