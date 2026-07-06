@@ -9,8 +9,16 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
 // Serve the tool at both / and /linked_rollover_tool
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'linked_rollover_tool.html')));
-app.get('/linked_rollover_tool', (req, res) => res.sendFile(path.join(__dirname, 'linked_rollover_tool.html')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'linked_rollover_tool.html'), err => {
+    if (err) res.status(500).send('File not found. __dirname=' + __dirname + ' err=' + err.message);
+  });
+});
+app.get('/linked_rollover_tool', (req, res) => {
+  res.sendFile(path.join(__dirname, 'linked_rollover_tool.html'), err => {
+    if (err) res.status(500).send('File not found. __dirname=' + __dirname + ' err=' + err.message);
+  });
+});
 
 // Proxy: Metabase login
 app.post('/api/mb/session', async (req, res) => {
