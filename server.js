@@ -8,6 +8,10 @@ const METABASE_BASE = 'https://fieldguide.metabaseapp.com';
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+// Serve the tool at both / and /linked_rollover_tool
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'linked_rollover_tool.html')));
+app.get('/linked_rollover_tool', (req, res) => res.sendFile(path.join(__dirname, 'linked_rollover_tool.html')));
+
 // Proxy: Metabase login
 app.post('/api/mb/session', async (req, res) => {
   try {
