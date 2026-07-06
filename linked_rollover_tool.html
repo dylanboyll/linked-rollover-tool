@@ -152,16 +152,13 @@
         </svg>
       </div>
       <div class="login-title">Linked Rollover Tool</div>
-      <div class="login-sub">Sign in with your Metabase credentials to continue.</div>
+      <div class="login-sub">Enter your Metabase session token to continue.</div>
     </div>
     <div class="login-body">
       <div>
-        <label class="field-label" for="mbEmail">Email</label>
-        <input type="email" id="mbEmail" class="plain-input" placeholder="you@fieldguide.io" autocomplete="email" />
-      </div>
-      <div>
-        <label class="field-label" for="mbPassword">Password</label>
-        <input type="password" id="mbPassword" class="plain-input" placeholder="••••••••" autocomplete="current-password" />
+        <label class="field-label" for="mbToken">Session Token</label>
+        <input type="text" id="mbToken" class="plain-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px;">Find it in Metabase → DevTools → Application → Cookies → <code>metabase.SESSION</code></div>
       </div>
       <div id="loginError" class="alert alert-error hidden" style="margin-top:0;">
         <span class="alert-icon">⚠️</span>
@@ -187,7 +184,7 @@
   <span class="header-badge">Internal</span>
   <div class="header-session">
     <span id="sessionIndicator" class="hidden">
-      <span style="color:var(--fg-green);">●</span> Signed in as <span id="sessionEmail" style="font-weight:500;"></span>
+      <span style="color:var(--fg-green);">●</span> Signed in to Metabase
     </span>
     <button id="signOutBtn" onclick="signOut()" class="hidden" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--gray-400);text-decoration:underline;">Sign out</button>
   </div>
@@ -381,19 +378,9 @@
 // All Metabase calls go through the server-side proxy to avoid CORS
 let _mbSession = null;
 
-async function mbLogin(email, password) {
-  const res = await fetch('/api/mb/session', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({username: email, password})
-  });
-  if (!res.ok) {
-    let msg = `Login failed (${res.status})`;
-    try { const j = await res.json(); msg = j.message || j.errors?.password || msg; } catch(e) {}
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  _mbSession = data.id;
+async function mbLogin(token) {
+  if (!token || token.length < 10) throw new Error('Please enter a valid session token.');
+  _mbSession = token;
 }
 
 async function callMetabase(database_id, sql) {
@@ -417,10 +404,9 @@ async function callMetabase(database_id, sql) {
 // Login
 // ════════════════════════════════════════════
 async function doLogin() {
-  const email    = document.getElementById('mbEmail').value.trim();
-  const password = document.getElementById('mbPassword').value;
-  if (!email || !password) {
-    document.getElementById('loginErrorMsg').textContent = 'Please enter your email and password.';
+  const token = document.getElementById('mbToken').value.trim();
+  if (!token) {
+    document.getElementById('loginErrorMsg').textContent = 'Please enter your session token.';
     document.getElementById('loginError').classList.remove('hidden');
     return;
   }
@@ -430,13 +416,12 @@ async function doLogin() {
   spinner.classList.remove('hidden');
   document.getElementById('loginError').classList.add('hidden');
   try {
-    await mbLogin(email, password);
+    await mbLogin(token);
     document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('sessionEmail').textContent = email;
     document.getElementById('sessionIndicator').classList.remove('hidden');
     document.getElementById('signOutBtn').classList.remove('hidden');
   } catch(err) {
-    document.getElementById('loginErrorMsg').textContent = err.message || 'Login failed. Check your credentials.';
+    document.getElementById('loginErrorMsg').textContent = err.message || 'Invalid token.';
     document.getElementById('loginError').classList.remove('hidden');
   } finally {
     btn.disabled = false;
