@@ -535,19 +535,23 @@ WHERE er.engagement_id IN (${ids.join(',')}) AND wr.hidden_at IS NULL`;
 }
 
 function buildSharedWorkplanRowsSQL(ids) {
+  // shared_key = numeric user_defined_key (shown in UI, but can change between rollover years)
+  // section_title = section name (stable across rollover years — used for comparison)
   return `SELECT
   wsr_child.user_defined_key  AS native_key,
   wsr_parent.user_defined_key AS shared_key,
-  wc.engagement_id     AS child_engagement_id,
-  wp_eng.engagement_id AS parent_engagement_id
+  ws_parent.title             AS section_title,
+  wc.engagement_id            AS child_engagement_id,
+  wp_eng.engagement_id        AS parent_engagement_id
 FROM workplan_row_linked_rows rlr
 JOIN workplan_rows wr_child  ON wr_child.id  = rlr.workplan_row_id
 JOIN workplan_rows wr_parent ON wr_parent.id = rlr.linked_workplan_row_id
 JOIN workplan_linked_workplans wlw ON wlw.id = rlr.workplan_linked_workplan_id
 JOIN workplans wc     ON wc.id = wr_child.workplan_id
 JOIN workplans wp_eng ON wp_eng.id = wr_parent.workplan_id
-JOIN workplan_section_rows wsr_child  ON wsr_child.workplan_row_id  = wr_child.id  AND wsr_child.hidden_at IS NULL
+JOIN workplan_section_rows wsr_child  ON wsr_child.workplan_row_id = wr_child.id  AND wsr_child.hidden_at IS NULL
 JOIN workplan_section_rows wsr_parent ON wsr_parent.workplan_row_id = wr_parent.id AND wsr_parent.hidden_at IS NULL
+JOIN workplan_sections ws_parent ON ws_parent.id = wsr_parent.workplan_section_id
 WHERE wr_child.hidden_at IS NULL AND wr_parent.hidden_at IS NULL
   AND wc.engagement_id IN (${ids.join(',')})`;
 }
@@ -910,59 +914,55 @@ function check3SharedColumnLinkage(pairs, sharedRows) {
 function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
   if (linkedRowPairs.length === 0) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
 
-  const byChildEng = {};
+  // Build per-engagement map: nativeKey → {sharedKey (numeric, for display), sectionTitle (for comparison)}
+  // The numeric shared_key changes when the parent workplan is rolled over and rows are renumbered.
+  // The section_title is stable across rollover years and is used for comparison.
+  const byChildEng = {}; // engagement_id → Map<nativeKey, {sharedKey, sectionTitle}>
   linkedRowPairs.forEach(r => {
-    // Skip rows with null/empty shared key — parent row has no user_defined_key, can't compare
-    if (!r.shared_key || String(r.shared_key).trim() === '' || String(r.shared_key) === 'null') return;
     if (!r.native_key || String(r.native_key).trim() === '') return;
     const eng = String(r.child_engagement_id);
-    if (!byChildEng[eng]) byChildEng[eng] = [];
-    byChildEng[eng].push({nativeKey: String(r.native_key), sharedKey: String(r.shared_key)});
+    if (!byChildEng[eng]) byChildEng[eng] = new Map();
+    const nk = String(r.native_key);
+    if (!byChildEng[eng].has(nk)) {
+      byChildEng[eng].set(nk, {
+        sharedKey: r.shared_key ? String(r.shared_key) : '',
+        sectionTitle: r.section_title ? String(r.section_title) : ''
+      });
+    }
   });
 
   const detail = [];
   let allPass = true, hasAnyLinked = false;
 
   pairs.forEach(({oldId, newId}) => {
-    const oldPairs = byChildEng[oldId] || [];
-    const newPairs = byChildEng[newId] || [];
-    if (oldPairs.length === 0 && newPairs.length === 0) return;
-    // If old has no valid shared key data, skip — nothing to compare against
-    if (oldPairs.length === 0) return;
+    const oldMap = byChildEng[oldId] || new Map();
+    const newMap = byChildEng[newId] || new Map();
+    if (oldMap.size === 0 && newMap.size === 0) return;
+    if (oldMap.size === 0) return; // No old data — can't compare
     hasAnyLinked = true;
 
-    const oldPairSet = new Set(oldPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
-    const newPairSet = new Set(newPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
-    // nativeKey → array of sharedKeys in new (for mismatch detection)
-    const newByNative = {};
-    newPairs.forEach(({nativeKey, sharedKey}) => { if (!newByNative[nativeKey]) newByNative[nativeKey]=[]; newByNative[nativeKey].push(sharedKey); });
-
-    const accountedNewPairKeys = new Set();
-
-    oldPairs.forEach(({nativeKey, sharedKey}) => {
-      if (newPairSet.has(`${nativeKey}|${sharedKey}`)) {
-        // Exact match
-        detail.push({oldId, newId, nativeKey, sharedKey, inOld:true, inNew:true, pass:true});
-        accountedNewPairKeys.add(`${nativeKey}|${sharedKey}`);
-      } else {
-        // Check if same nativeKey exists in new with a different sharedKey → mismatch
-        const newSharedKeys = (newByNative[nativeKey]||[]).filter(sk => !oldPairSet.has(`${nativeKey}|${sk}`));
-        if (newSharedKeys.length > 0) {
-          const newSharedKey = newSharedKeys[0];
-          detail.push({oldId, newId, nativeKey, sharedKey, newSharedKey, inOld:true, inNew:false, mismatch:true, pass:false, issue:`Shared key changed: ${sharedKey} → ${newSharedKey}`});
-          accountedNewPairKeys.add(`${nativeKey}|${newSharedKey}`);
+    // Compare by section title (stable across rollover years). Display numeric shared_key for reference.
+    oldMap.forEach(({sharedKey: oldDisplayKey, sectionTitle: oldSection}, nativeKey) => {
+      if (newMap.has(nativeKey)) {
+        const {sharedKey: newDisplayKey, sectionTitle: newSection} = newMap.get(nativeKey);
+        if (newSection === oldSection) {
+          // Same section → pass (display the new engagement's numeric key)
+          detail.push({oldId, newId, nativeKey, sharedKey: newDisplayKey, inOld:true, inNew:true, pass:true});
         } else {
-          // Truly missing — nativeKey not in new at all
-          detail.push({oldId, newId, nativeKey, sharedKey, inOld:true, inNew:false, pass:false, issue:`Missing from new engagement (${newId})`});
+          // Native key moved to a different section between old and new
+          detail.push({oldId, newId, nativeKey, sharedKey: oldSection, newSharedKey: newSection, inOld:true, inNew:false, mismatch:true, pass:false, issue:`Section changed: ${oldSection} → ${newSection}`});
+          allPass = false;
         }
+      } else {
+        detail.push({oldId, newId, nativeKey, sharedKey: oldDisplayKey, inOld:true, inNew:false, pass:false, issue:`Missing from new engagement (${newId})`});
         allPass = false;
       }
     });
 
-    // Extra pairs in new not accounted for
-    newPairs.forEach(({nativeKey, sharedKey}) => {
-      if (!accountedNewPairKeys.has(`${nativeKey}|${sharedKey}`) && !oldPairSet.has(`${nativeKey}|${sharedKey}`)) {
-        detail.push({oldId, newId, nativeKey, sharedKey, inOld:false, inNew:true, pass:false, issue:`Extra in new — not in prior year`});
+    // Flag native keys that appear in new but not old
+    newMap.forEach(({sharedKey: newDisplayKey}, nativeKey) => {
+      if (!oldMap.has(nativeKey)) {
+        detail.push({oldId, newId, nativeKey, sharedKey: newDisplayKey, inOld:false, inNew:true, pass:false, issue:`Extra in new — not in prior year`});
         allPass = false;
       }
     });
