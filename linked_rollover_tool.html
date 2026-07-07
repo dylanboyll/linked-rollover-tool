@@ -934,7 +934,27 @@ function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
   });
 
   if (!hasAnyLinked) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
-  return {num:4,title:'Shared Column Pairing',pass:allPass,detail,type:'rowmapping'};
+
+  // Merge missing+extra with same nativeKey into a single "mismatch" row
+  const finalDetail = [];
+  const usedIndices = new Set();
+  detail.forEach((d, i) => {
+    if (usedIndices.has(i)) return;
+    if (d.inOld && !d.inNew) {
+      const extraIdx = detail.findIndex((e, j) =>
+        j > i && !e.inOld && e.inNew &&
+        e.oldId === d.oldId && e.newId === d.newId && e.nativeKey === d.nativeKey
+      );
+      if (extraIdx !== -1) {
+        usedIndices.add(extraIdx);
+        finalDetail.push({...d, oldSharedKey: d.sharedKey, newSharedKey: detail[extraIdx].sharedKey, mismatch: true, pass: false, issue: `Shared key changed: ${d.sharedKey} → ${detail[extraIdx].sharedKey}`});
+        return;
+      }
+    }
+    finalDetail.push(d);
+  });
+
+  return {num:4,title:'Shared Column Pairing',pass:allPass,detail:finalDetail,type:'rowmapping'};
 }
 
 // ════════════════════════════════════════════
@@ -1043,12 +1063,17 @@ function renderCheckCard(check) {
         const rows=check.detail.filter(d=>d.oldId===oldId&&d.newId===newId);
         const header=`<tr style="background:#f5f5f5"><td colspan="3" style="font-size:11px;padding:4px 8px;color:#888;">Prior year: ${esc(oldId)} → New: ${esc(newId)}</td></tr>`;
         return [header,...rows.map(d=>{
-          const status = d.inOld&&d.inNew
-            ? '<span class="badge badge-green">✓ Match</span>'
-            : d.inOld&&!d.inNew
-              ? `<span class="badge badge-red">✗ Missing from new</span>`
-              : `<span class="badge badge-yellow">Extra in new</span>`;
-          return `<tr data-pass="${d.pass}"><td class="mono">${esc(d.newId)}</td><td class="mono">${esc(d.nativeKey)}</td><td class="mono">${esc(d.sharedKey)}</td><td>${status}</td></tr>`;
+          const sharedKeyDisplay = d.mismatch
+            ? `<span class="mono" style="text-decoration:line-through;color:var(--gray-400);">${esc(d.oldSharedKey)}</span> → <span class="mono">${esc(d.newSharedKey)}</span>`
+            : `<span class="mono">${esc(d.sharedKey)}</span>`;
+          const status = d.mismatch
+            ? `<span class="badge badge-red">✗ Mismatch</span>`
+            : d.inOld&&d.inNew
+              ? '<span class="badge badge-green">✓ Match</span>'
+              : d.inOld&&!d.inNew
+                ? `<span class="badge badge-red">✗ Missing from new</span>`
+                : `<span class="badge badge-yellow">Extra in new</span>`;
+          return `<tr data-pass="${d.pass}"><td class="mono">${esc(d.newId)}</td><td class="mono">${esc(d.nativeKey)}</td><td>${sharedKeyDisplay}</td><td>${status}</td></tr>`;
         })];
       });
       bodyHtml=`<div class="table-wrap"><table><thead><tr><th>New Eng</th><th>Native Row Key</th><th>Shared Row Key</th><th>Status</th></tr></thead><tbody>${tableRows.join('')}</tbody></table></div>`;
