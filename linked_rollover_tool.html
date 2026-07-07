@@ -907,7 +907,6 @@ function check3SharedColumnLinkage(pairs, sharedRows) {
 function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
   if (linkedRowPairs.length === 0) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
 
-  // Index by child engagement id
   const byChildEng = {};
   linkedRowPairs.forEach(r => {
     const eng = String(r.child_engagement_id);
@@ -916,8 +915,7 @@ function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
   });
 
   const detail = [];
-  let allPass = true;
-  let hasAnyLinked = false;
+  let allPass = true, hasAnyLinked = false;
 
   pairs.forEach(({oldId, newId}) => {
     const oldPairs = byChildEng[oldId] || [];
@@ -925,47 +923,45 @@ function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
     if (oldPairs.length === 0 && newPairs.length === 0) return;
     hasAnyLinked = true;
 
-    const newSet = new Set(newPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
-    const oldSet = new Set(oldPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
+    const oldPairSet = new Set(oldPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
+    const newPairSet = new Set(newPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
+    // nativeKey → array of sharedKeys in new (for mismatch detection)
+    const newByNative = {};
+    newPairs.forEach(({nativeKey, sharedKey}) => { if (!newByNative[nativeKey]) newByNative[nativeKey]=[]; newByNative[nativeKey].push(sharedKey); });
 
-    // Each old pair should exist in new
+    const accountedNewPairKeys = new Set();
+
     oldPairs.forEach(({nativeKey, sharedKey}) => {
-      const inNew = newSet.has(`${nativeKey}|${sharedKey}`);
-      if (!inNew) allPass = false;
-      detail.push({oldId, newId, nativeKey: nativeKey||'—', sharedKey: sharedKey||'—', inOld:true, inNew, pass:inNew, issue: inNew ? null : `Missing from new engagement (${newId})`});
+      if (newPairSet.has(`${nativeKey}|${sharedKey}`)) {
+        // Exact match
+        detail.push({oldId, newId, nativeKey, sharedKey, inOld:true, inNew:true, pass:true});
+        accountedNewPairKeys.add(`${nativeKey}|${sharedKey}`);
+      } else {
+        // Check if same nativeKey exists in new with a different sharedKey → mismatch
+        const newSharedKeys = (newByNative[nativeKey]||[]).filter(sk => !oldPairSet.has(`${nativeKey}|${sk}`));
+        if (newSharedKeys.length > 0) {
+          const newSharedKey = newSharedKeys[0];
+          detail.push({oldId, newId, nativeKey, sharedKey, newSharedKey, inOld:true, inNew:false, mismatch:true, pass:false, issue:`Shared key changed: ${sharedKey} → ${newSharedKey}`});
+          accountedNewPairKeys.add(`${nativeKey}|${newSharedKey}`);
+        } else {
+          // Truly missing — nativeKey not in new at all
+          detail.push({oldId, newId, nativeKey, sharedKey, inOld:true, inNew:false, pass:false, issue:`Missing from new engagement (${newId})`});
+        }
+        allPass = false;
+      }
     });
 
-    // Extra pairs in new not in old
+    // Extra pairs in new not accounted for
     newPairs.forEach(({nativeKey, sharedKey}) => {
-      if (!oldSet.has(`${nativeKey}|${sharedKey}`)) {
-        detail.push({oldId, newId, nativeKey: nativeKey||'—', sharedKey: sharedKey||'—', inOld:false, inNew:true, pass:false, issue:`Extra in new engagement (${newId}) — not in prior year`});
+      if (!accountedNewPairKeys.has(`${nativeKey}|${sharedKey}`) && !oldPairSet.has(`${nativeKey}|${sharedKey}`)) {
+        detail.push({oldId, newId, nativeKey, sharedKey, inOld:false, inNew:true, pass:false, issue:`Extra in new — not in prior year`});
         allPass = false;
       }
     });
   });
 
   if (!hasAnyLinked) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
-
-  // Merge missing+extra with same nativeKey into a single "mismatch" row
-  const finalDetail = [];
-  const usedIndices = new Set();
-  detail.forEach((d, i) => {
-    if (usedIndices.has(i)) return;
-    if (d.inOld && !d.inNew) {
-      const extraIdx = detail.findIndex((e, j) =>
-        j > i && !e.inOld && e.inNew &&
-        e.oldId === d.oldId && e.newId === d.newId && e.nativeKey === d.nativeKey
-      );
-      if (extraIdx !== -1) {
-        usedIndices.add(extraIdx);
-        finalDetail.push({...d, oldSharedKey: d.sharedKey, newSharedKey: detail[extraIdx].sharedKey, mismatch: true, pass: false, issue: `Shared key changed: ${d.sharedKey} → ${detail[extraIdx].sharedKey}`});
-        return;
-      }
-    }
-    finalDetail.push(d);
-  });
-
-  return {num:4,title:'Shared Column Pairing',pass:allPass,detail:finalDetail,type:'rowmapping'};
+  return {num:4,title:'Shared Column Pairing',pass:allPass,detail,type:'rowmapping'};
 }
 
 // ════════════════════════════════════════════
