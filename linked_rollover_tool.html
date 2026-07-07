@@ -838,13 +838,43 @@ function check1RequestCounts(pairs, priorYearRows, newYearRows) {
 }
 
 function check2RequestLinkage(pairs, priorYearRows, newYearRows) {
-  const oldIds = pairs.map(p=>p.oldId), newIds = pairs.map(p=>p.newId);
-  const oldLinked = getLinkedIdentifiers(priorYearRows, oldIds);
-  const newLinked = getLinkedIdentifiers(newYearRows, newIds);
-  const identifierTitles = {};
+  const oldIdSet = new Set(pairs.map(p=>p.oldId)), newIdSet = new Set(pairs.map(p=>p.newId));
+  const oldToNew = {}; pairs.forEach(({oldId,newId})=>{ oldToNew[oldId]=newId; });
+
+  // Track which engagements each identifier appears in
+  const oldIdToEngs={}, newIdToEngs={};
+  priorYearRows.forEach(r=>{
+    const eng=String(r.engagement_id||'').trim(); if(!oldIdSet.has(eng)) return;
+    const id=String(r.request_identifier||'').trim(); if(!id) return;
+    if(!oldIdToEngs[id]) oldIdToEngs[id]=new Set();
+    oldIdToEngs[id].add(eng);
+  });
+  newYearRows.forEach(r=>{
+    const eng=String(r.engagement_id||'').trim(); if(!newIdSet.has(eng)) return;
+    const id=String(r.request_identifier||'').trim(); if(!id) return;
+    if(!newIdToEngs[id]) newIdToEngs[id]=new Set();
+    newIdToEngs[id].add(eng);
+  });
+
+  const oldLinked=new Set(Object.keys(oldIdToEngs).filter(id=>oldIdToEngs[id].size>1));
+  const newLinked=new Set(Object.keys(newIdToEngs).filter(id=>newIdToEngs[id].size>1));
+
+  const identifierTitles={};
   priorYearRows.forEach(r=>{ const id=String(r.request_identifier||'').trim(); if(id&&!identifierTitles[id]) identifierTitles[id]=r.request_title||''; });
+
   const allIdentifiers=[...new Set([...oldLinked,...newLinked])].sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
-  const detail=allIdentifiers.map(id=>{ const inOld=oldLinked.has(id), inNew=newLinked.has(id); return {identifier:id,title:identifierTitles[id]||'',inOld,inNew,pass:inOld&&inNew}; });
+  const detail=allIdentifiers.map(id=>{
+    const inOld=oldLinked.has(id), inNew=newLinked.has(id);
+    const pass=inOld&&inNew;
+    let missingFromEngs=[], extraInEngs=[];
+    if (inOld&&!inNew) {
+      const expectedNew=[...(oldIdToEngs[id]||[])].map(o=>oldToNew[o]).filter(Boolean);
+      const actualNew=[...(newIdToEngs[id]||[])];
+      missingFromEngs=expectedNew.filter(e=>!actualNew.includes(e));
+    }
+    if (!inOld&&inNew) extraInEngs=[...(newIdToEngs[id]||[])];
+    return {identifier:id,title:identifierTitles[id]||'',inOld,inNew,pass,missingFromEngs,extraInEngs};
+  });
   const missing=[...oldLinked].filter(id=>!newLinked.has(id));
   return {num:2,title:'Request Linkage',pass:missing.length===0,missing,detail,type:'linkage'};
 }
@@ -945,21 +975,21 @@ function exportQA() {
         d.allIds.forEach(id => {
           const missing = d.missingFromNew.includes(id), extra = d.extraInNew.includes(id);
           const status = missing ? 'Missing' : extra ? 'Extra' : 'Pass';
-          rows.push([`Check ${check.num}`, d.newId, d.oldId, id, '', d.identifierTitles[id]||'', status, missing?'Missing from new':extra?'Extra in new':'']);
+          rows.push([check.title, d.newId, d.oldId, id, '', d.identifierTitles[id]||'', status, missing?'Missing from new':extra?'Extra in new':'']);
         });
       });
     } else if (check.type==='linkage') {
       check.detail.forEach(d => {
-        rows.push([`Check ${check.num}`, '', '', d.identifier, '', d.title, d.pass?'Pass':d.inOld&&!d.inNew?'Not linked':'Extra', d.pass?'':d.inOld&&!d.inNew?'Missing from new rollover':'Extra in new']);
+        rows.push([check.title, '', '', d.identifier, '', d.title, d.pass?'Pass':d.inOld&&!d.inNew?'Not linked':'Extra', d.pass?'':d.inOld&&!d.inNew?'Missing from new rollover':'Extra in new']);
       });
     } else if (check.type==='sharedcol') {
       check.detail.forEach(d => {
-        rows.push([`Check ${check.num}`, d.newId, d.oldId, '', '', '', d.note?'Skipped':d.pass?'Pass':'Failed', d.issue||d.note||'']);
+        rows.push([check.title, d.newId, d.oldId, '', '', '', d.note?'Skipped':d.pass?'Pass':'Failed', d.issue||d.note||'']);
       });
     } else if (check.type==='rowmapping') {
       check.detail.forEach(d => {
         const status = d.inOld&&d.inNew?'Match':d.inOld&&!d.inNew?'Missing from new':'Extra in new';
-        rows.push([`Check ${check.num}`, d.newId, d.oldId, d.nativeKey, d.sharedKey, '', status, d.issue||'']);
+        rows.push([check.title, d.newId, d.oldId, d.nativeKey, d.sharedKey, '', status, d.issue||'']);
       });
     }
   });
@@ -994,7 +1024,14 @@ function renderCheckCard(check) {
     }).join('');
   } else if (check.type==='linkage') {
     if (check.detail.length===0) { bodyHtml=`<div class="text-sm text-muted">No linked requests found in prior year data.</div>`; }
-    else { bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Identifier</th><th>Title</th><th>In Prior Year</th><th>In New Rollover</th><th>Status</th></tr></thead><tbody>${check.detail.map(d=>`<tr data-pass="${d.pass}"><td class="mono">${esc(d.identifier)}</td><td>${esc(d.title)}</td><td style="text-align:center;">${d.inOld?'✓':'—'}</td><td style="text-align:center;">${d.inNew?'✓':'—'}</td><td>${d.pass?'<span class="badge badge-green">✓</span>':d.inOld&&!d.inNew?'<span class="badge badge-red">✗ Not linked</span>':'<span class="badge badge-yellow">Extra</span>'}</td></tr>`).join('')}</tbody></table></div>`; }
+    else { bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Identifier</th><th>Title</th><th>In Prior Year</th><th>In New Rollover</th><th>Status</th></tr></thead><tbody>${check.detail.map(d=>{
+      const statusCell = d.pass
+        ? '<span class="badge badge-green">✓</span>'
+        : d.inOld&&!d.inNew
+          ? `<span class="badge badge-red">✗ Not linked</span>${d.missingFromEngs?.length?` <span style="font-size:11px;color:var(--gray-400);">missing from: ${esc(d.missingFromEngs.join(', '))}</span>`:''}`
+          : `<span class="badge badge-yellow">Extra</span>${d.extraInEngs?.length?` <span style="font-size:11px;color:var(--gray-400);">in: ${esc(d.extraInEngs.join(', '))}</span>`:''}`;
+      return `<tr data-pass="${d.pass}"><td class="mono">${esc(d.identifier)}</td><td>${esc(d.title)}</td><td style="text-align:center;">${d.inOld?'✓':'—'}</td><td style="text-align:center;">${d.inNew?'✓':'—'}</td><td>${statusCell}</td></tr>`;
+    }).join('')}</tbody></table></div>`; }
   } else if (check.type==='sharedcol') {
     bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Prior Year Eng</th><th>New Eng</th><th>Status</th></tr></thead><tbody>${check.detail.map(d=>`<tr data-pass="${d.pass}"><td class="mono">${esc(d.oldId)}</td><td class="mono">${esc(d.newId)}</td><td>${d.note?`<span class="badge badge-gray">${esc(d.note)}</span>`:d.pass?'<span class="badge badge-green">✓ Linked</span>':`<span class="badge badge-red">✗ ${esc(d.issue||'No linkage')}</span>`}</td></tr>`).join('')}</tbody></table></div>`;
   } else if (check.type==='rowmapping') {
