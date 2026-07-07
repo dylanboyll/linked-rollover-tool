@@ -842,10 +842,10 @@ function check1RequestCounts(pairs, priorYearRows, newYearRows) {
     const extraInNew=[...newIdentifiers].filter(id=>!oldIdentifiers.has(id));
     const listsMatch=missingFromNew.length===0&&extraInNew.length===0;
     const oldCount=oldIdentifiers.size, newCount=newIdentifiers.size;
-    const countsMatch=oldCount>0&&newCount>0&&oldCount===newCount;
+    const countsMatch=oldCount===newCount;
     const pass=countsMatch&&listsMatch; if(!pass) allPass=false;
     const allIds=[...new Set([...oldIdentifiers,...newIdentifiers])].filter(Boolean).sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
-    const issue=oldCount===0?`No prior year data found for ${oldId}`:newCount===0?`No new engagement data found for ${newId}`:null;
+    const issue=!pass&&oldCount===0&&newCount>0?`No prior year data found for ${oldId}`:!pass&&newCount===0&&oldCount>0?`No new engagement data found for ${newId}`:null;
     detail.push({oldId,newId,oldCount,newCount,countsMatch,listsMatch,pass,missingFromNew,extraInNew,allIds,identifierTitles,issue});
   });
   return {num:1,title:'Request Counts & List',pass:allPass,detail,type:'counts'};
@@ -912,9 +912,12 @@ function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
 
   const byChildEng = {};
   linkedRowPairs.forEach(r => {
+    // Skip rows with null/empty shared key — parent row has no user_defined_key, can't compare
+    if (!r.shared_key || String(r.shared_key).trim() === '' || String(r.shared_key) === 'null') return;
+    if (!r.native_key || String(r.native_key).trim() === '') return;
     const eng = String(r.child_engagement_id);
     if (!byChildEng[eng]) byChildEng[eng] = [];
-    byChildEng[eng].push({nativeKey: String(r.native_key||''), sharedKey: String(r.shared_key||'')});
+    byChildEng[eng].push({nativeKey: String(r.native_key), sharedKey: String(r.shared_key)});
   });
 
   const detail = [];
@@ -924,6 +927,8 @@ function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
     const oldPairs = byChildEng[oldId] || [];
     const newPairs = byChildEng[newId] || [];
     if (oldPairs.length === 0 && newPairs.length === 0) return;
+    // If old has no valid shared key data, skip — nothing to compare against
+    if (oldPairs.length === 0) return;
     hasAnyLinked = true;
 
     const oldPairSet = new Set(oldPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
@@ -1074,7 +1079,7 @@ function renderCheckCard(check) {
         const header=`<tr style="background:#f5f5f5"><td colspan="3" style="font-size:11px;padding:4px 8px;color:#888;">Prior year: ${esc(oldId)} → New: ${esc(newId)}</td></tr>`;
         return [header,...rows.map(d=>{
           const sharedKeyDisplay = d.mismatch
-            ? `<span class="mono" style="text-decoration:line-through;color:var(--gray-400);">${esc(d.oldSharedKey)}</span> → <span class="mono">${esc(d.newSharedKey)}</span>`
+            ? `<span class="mono" style="text-decoration:line-through;color:var(--gray-400);">${esc(d.sharedKey)}</span> → <span class="mono">${esc(d.newSharedKey)}</span>`
             : `<span class="mono">${esc(d.sharedKey)}</span>`;
           const status = d.mismatch
             ? `<span class="badge badge-red">✗ Mismatch</span>`
