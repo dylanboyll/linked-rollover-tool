@@ -753,10 +753,10 @@ async function runQA() {
   const newIds = pairs.map(p => p.newId);
   const allIds = [...new Set([...oldIds, ...newIds])];
 
+  clearQA();
   const btn = document.getElementById('runQaBtn');
   const spinner = document.getElementById('qaSpinner');
   btn.disabled = true; spinner.classList.remove('hidden');
-  document.getElementById('qaResults').classList.add('hidden');
 
   try {
     const [r1, r2] = await Promise.all([
