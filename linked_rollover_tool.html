@@ -494,13 +494,22 @@ JOIN engagement_requests er         ON er.request_id       = r.id
 WHERE er.engagement_id IN (${ids.join(',')}) AND wr.hidden_at IS NULL`;
 }
 
-function buildSharedWorkplanRowsSQL(wpIds) {
-  return `SELECT wr.workplan_id, r.identifier AS request_identifier, r.title AS request_title,
-  wr.values->>'user_defined_key' AS row_key
-FROM workplan_row_requests wrr
-JOIN workplan_rows wr               ON wrr.workplan_row_id = wr.id
-JOIN request_checklist_line_items r ON wrr.request_id      = r.id
-WHERE wr.workplan_id IN (${wpIds.join(',')}) AND wr.hidden_at IS NULL`;
+function buildSharedWorkplanRowsSQL(ids) {
+  return `SELECT
+  wsr_child.user_defined_key  AS native_key,
+  wsr_parent.user_defined_key AS shared_key,
+  wc.engagement_id     AS child_engagement_id,
+  wp_eng.engagement_id AS parent_engagement_id
+FROM workplan_row_linked_rows rlr
+JOIN workplan_rows wr_child  ON wr_child.id  = rlr.workplan_row_id
+JOIN workplan_rows wr_parent ON wr_parent.id = rlr.linked_workplan_row_id
+JOIN workplan_linked_workplans wlw ON wlw.id = rlr.workplan_linked_workplan_id
+JOIN workplans wc     ON wc.id = wr_child.workplan_id
+JOIN workplans wp_eng ON wp_eng.id = wr_parent.workplan_id
+JOIN workplan_section_rows wsr_child  ON wsr_child.workplan_row_id  = wr_child.id  AND wsr_child.hidden_at IS NULL
+JOIN workplan_section_rows wsr_parent ON wsr_parent.workplan_row_id = wr_parent.id AND wsr_parent.hidden_at IS NULL
+WHERE wr_child.hidden_at IS NULL AND wr_parent.hidden_at IS NULL
+  AND wc.engagement_id IN (${ids.join(',')})`;
 }
 
 function buildSharedSQL(ids) {
@@ -731,12 +740,9 @@ async function runQA() {
     const allRequestRows = parseMetabaseResult(r1);
     const sharedRows     = parseMetabaseResult(r2);
 
-    const sharedWorkplanFor = {};
-    sharedRows.forEach(r => { sharedWorkplanFor[String(r.child_engagement_id)] = String(r.child_workplan_id); sharedWorkplanFor[String(r.parent_engagement_id)] = String(r.parent_workplan_id); });
-    const wpIds = [...new Set(Object.values(sharedWorkplanFor))];
     let sharedWorkplanRows = [];
-    if (wpIds.length > 0) {
-      const r3 = await callMetabase(selectedDbId, buildSharedWorkplanRowsSQL(wpIds));
+    if (sharedRows.length > 0) {
+      const r3 = await callMetabase(selectedDbId, buildSharedWorkplanRowsSQL(allIds));
       sharedWorkplanRows = parseMetabaseResult(r3);
     }
 
@@ -748,7 +754,7 @@ async function runQA() {
       check1RequestCounts(pairs, priorYearRows, newYearRows),
       check2RequestLinkage(pairs, priorYearRows, newYearRows),
       check3SharedColumnLinkage(pairs, sharedRows),
-      check4SharedColumnRowMapping(pairs, sharedWorkplanRows, sharedRows),
+      check4SharedColumnRowMapping(pairs, sharedWorkplanRows),
     ];
 
     renderQAResults(results);
@@ -831,50 +837,47 @@ function check3SharedColumnLinkage(pairs, sharedRows) {
   return {num:3,title:'Shared Column Linkage',pass:allPass,detail,type:'sharedcol'};
 }
 
-function check4SharedColumnRowMapping(pairs, sharedWorkplanRows, sharedRows) {
-  if (sharedRows.length===0) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
-  const newToOld={};
-  pairs.forEach(({oldId,newId})=>{ newToOld[newId]=oldId; });
-  const newIds=new Set(pairs.map(p=>p.newId));
-  const groups=[];
-  sharedRows.forEach(r=>{
-    const newChild=String(r.child_engagement_id), newParent=String(r.parent_engagement_id);
-    if (!newIds.has(newChild)||!newIds.has(newParent)) return;
-    const oldChild=newToOld[newChild], oldParent=newToOld[newParent];
-    if (!oldChild||!oldParent) return;
-    const oldRow=sharedRows.find(or=>String(or.child_engagement_id)===oldChild&&String(or.parent_engagement_id)===oldParent);
-    if (!oldRow) return;
-    groups.push({oldChild,oldParent,newChild,newParent,oldChildWp:String(oldRow.child_workplan_id),oldParentWp:String(oldRow.parent_workplan_id),newChildWp:String(r.child_workplan_id),newParentWp:String(r.parent_workplan_id)});
+function check4SharedColumnRowMapping(pairs, linkedRowPairs) {
+  if (linkedRowPairs.length === 0) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
+
+  // Index by child engagement id
+  const byChildEng = {};
+  linkedRowPairs.forEach(r => {
+    const eng = String(r.child_engagement_id);
+    if (!byChildEng[eng]) byChildEng[eng] = [];
+    byChildEng[eng].push({nativeKey: String(r.native_key||''), sharedKey: String(r.shared_key||'')});
   });
-  if (groups.length===0) return {num:4,title:'Shared Column Pairing',pass:true,detail:[],skipped:false,type:'rowmapping',noLinked:true};
 
-  function getRowKey(wpId,identifier) {
-    if (!wpId) return null;
-    const row=sharedWorkplanRows.find(r=>String(r.workplan_id)===wpId&&String(r.request_identifier).trim()===identifier);
-    return row ? String(row.row_key||'').trim()||null : null;
-  }
+  const detail = [];
+  let allPass = true;
+  let hasAnyLinked = false;
 
-  const detail=[]; let allPass=true;
-  groups.forEach(({oldChild,oldParent,newChild,newParent,oldChildWp,oldParentWp,newChildWp,newParentWp})=>{
-    const identifiers=[...new Set(sharedWorkplanRows.filter(r=>String(r.workplan_id)===oldChildWp).map(r=>String(r.request_identifier).trim()))];
-    if (identifiers.length===0) return;
-    const newChildIds=new Set(sharedWorkplanRows.filter(r=>String(r.workplan_id)===newChildWp).map(r=>String(r.request_identifier).trim()));
-    const newParentIds=new Set(sharedWorkplanRows.filter(r=>String(r.workplan_id)===newParentWp).map(r=>String(r.request_identifier).trim()));
-    identifiers.forEach(identifier=>{
-      const oldChildKey=getRowKey(oldChildWp,identifier), oldParentKey=getRowKey(oldParentWp,identifier);
-      const inNewChild=newChildIds.has(identifier), inNewParent=newParentIds.has(identifier);
-      const newChildKey=getRowKey(newChildWp,identifier), newParentKey=getRowKey(newParentWp,identifier);
-      let pass=true, issue=null;
-      if (!inNewChild)      { pass=false; issue=`Missing from new child eng (${newChild})`; }
-      else if (!inNewParent){ pass=false; issue=`Missing from new parent eng (${newParent})`; }
-      else if (oldChildKey&&newChildKey&&oldChildKey!==newChildKey)    { pass=false; issue=`Child key changed: ${oldChildKey} → ${newChildKey}`; }
-      else if (oldParentKey&&newParentKey&&oldParentKey!==newParentKey){ pass=false; issue=`Parent key changed: ${oldParentKey} → ${newParentKey}`; }
-      if (!pass) allPass=false;
-      const titleRow=sharedWorkplanRows.find(r=>String(r.request_identifier).trim()===identifier);
-      detail.push({identifier,title:titleRow?.request_title||'',groupLabel:`${oldChild}+${oldParent} → ${newChild}+${newParent}`,oldChildKey:oldChildKey??'—',oldParentKey:oldParentKey??'—',newChildPresent:inNewChild,newParentPresent:inNewParent,newChildKey,newParentKey,pass,issue});
+  pairs.forEach(({oldId, newId}) => {
+    const oldPairs = byChildEng[oldId] || [];
+    const newPairs = byChildEng[newId] || [];
+    if (oldPairs.length === 0 && newPairs.length === 0) return;
+    hasAnyLinked = true;
+
+    const newSet = new Set(newPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
+    const oldSet = new Set(oldPairs.map(p => `${p.nativeKey}|${p.sharedKey}`));
+
+    // Each old pair should exist in new
+    oldPairs.forEach(({nativeKey, sharedKey}) => {
+      const inNew = newSet.has(`${nativeKey}|${sharedKey}`);
+      if (!inNew) allPass = false;
+      detail.push({oldId, newId, nativeKey: nativeKey||'—', sharedKey: sharedKey||'—', inOld:true, inNew, pass:inNew, issue: inNew ? null : `Missing from new engagement (${newId})`});
+    });
+
+    // Extra pairs in new not in old
+    newPairs.forEach(({nativeKey, sharedKey}) => {
+      if (!oldSet.has(`${nativeKey}|${sharedKey}`)) {
+        detail.push({oldId, newId, nativeKey: nativeKey||'—', sharedKey: sharedKey||'—', inOld:false, inNew:true, pass:false, issue:`Extra in new engagement (${newId}) — not in prior year`});
+        allPass = false;
+      }
     });
   });
-  if (detail.length===0) return {num:4,title:'Shared Column Pairing',pass:true,detail:[],skipped:false,type:'rowmapping',noLinked:true};
+
+  if (!hasAnyLinked) return {num:4,title:'Shared Column Pairing',pass:null,skipped:true,type:'rowmapping'};
   return {num:4,title:'Shared Column Pairing',pass:allPass,detail,type:'rowmapping'};
 }
 
@@ -920,22 +923,23 @@ function renderCheckCard(check) {
   } else if (check.type==='sharedcol') {
     bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Prior Year Eng</th><th>New Eng</th><th>Status</th></tr></thead><tbody>${check.detail.map(d=>`<tr><td class="mono">${esc(d.oldId)}</td><td class="mono">${esc(d.newId)}</td><td>${d.note?`<span class="badge badge-gray">${esc(d.note)}</span>`:d.pass?'<span class="badge badge-green">✓ Linked</span>':`<span class="badge badge-red">✗ ${esc(d.issue||'No linkage')}</span>`}</td></tr>`).join('')}</tbody></table></div>`;
   } else if (check.type==='rowmapping') {
-    if (check.noLinked) { bodyHtml=`<div class="text-sm text-muted">No shared column requests found in prior year workplans — nothing to compare.</div>`; }
-    else if (check.detail.length===0) { bodyHtml=`<div class="text-sm text-muted">No row mapping data to compare for the given pairs.</div>`; }
+    if (check.detail.length===0) { bodyHtml=`<div class="text-sm text-muted">No shared column row pairings found for the given engagement IDs.</div>`; }
     else {
-      const groups=[...new Set(check.detail.map(d=>d.groupLabel))];
-      const tableRows=groups.flatMap(g=>{
-        const rows=check.detail.filter(d=>d.groupLabel===g);
-        const [oldChildId,rest]=g.split('+'); const [oldParentId,newPart]=rest.split(' → '); const [newChildId,newParentId]=newPart.split('+');
-        const header=`<tr style="background:#f5f5f5"><td colspan="7" style="font-size:11px;padding:4px 8px;color:#888;">Linked group: Prior ${oldChildId} (child) + ${oldParentId} (parent) → New ${newChildId} (child) + ${newParentId} (parent)</td></tr>`;
+      const engPairs=[...new Set(check.detail.map(d=>`${d.oldId}|${d.newId}`))];
+      const tableRows=engPairs.flatMap(ep=>{
+        const [oldId,newId]=ep.split('|');
+        const rows=check.detail.filter(d=>d.oldId===oldId&&d.newId===newId);
+        const header=`<tr style="background:#f5f5f5"><td colspan="3" style="font-size:11px;padding:4px 8px;color:#888;">Prior year: ${esc(oldId)} → New: ${esc(newId)}</td></tr>`;
         return [header,...rows.map(d=>{
-          const childCell=d.newChildPresent?'<span class="badge badge-green" style="font-size:10px;">✓ Present</span>':'<span class="badge badge-red" style="font-size:10px;">✗ Missing</span>';
-          const parentCell=d.newParentPresent?'<span class="badge badge-green" style="font-size:10px;">✓ Present</span>':'<span class="badge badge-red" style="font-size:10px;">✗ Missing</span>';
-          const statusCell=d.pass?'<span class="badge badge-green">✓ Paired</span>':`<span class="badge badge-red">✗ ${esc(d.issue||'Failed')}</span>`;
-          return `<tr><td class="mono">${esc(d.identifier)}</td><td>${esc(d.title)}</td><td class="mono">${esc(d.oldChildKey)}</td><td class="mono">${esc(d.oldParentKey)}</td><td>${childCell}</td><td>${parentCell}</td><td>${statusCell}</td></tr>`;
+          const status = d.inOld&&d.inNew
+            ? '<span class="badge badge-green">✓ Match</span>'
+            : d.inOld&&!d.inNew
+              ? `<span class="badge badge-red">✗ Missing from new</span>`
+              : `<span class="badge badge-yellow">Extra in new</span>`;
+          return `<tr><td class="mono">${esc(d.nativeKey)}</td><td class="mono">${esc(d.sharedKey)}</td><td>${status}</td></tr>`;
         })];
       });
-      bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Identifier</th><th>Title</th><th>Prior Child Key</th><th>Prior Parent Key</th><th>New Child</th><th>New Parent</th><th>Status</th></tr></thead><tbody>${tableRows.join('')}</tbody></table></div>`;
+      bodyHtml=`<div class="table-wrap"><table><thead><tr><th>Native Row Key</th><th>Shared Row Key</th><th>Status</th></tr></thead><tbody>${tableRows.join('')}</tbody></table></div>`;
     }
   }
 
