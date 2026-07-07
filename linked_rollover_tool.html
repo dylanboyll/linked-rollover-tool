@@ -246,7 +246,7 @@
           <hr class="section-divider" />
           <div class="preview-label">Preview (first 5 rows)</div>
           <div class="table-wrap"><table id="previewTable"></table></div>
-          <div class="btn-row"><button class="btn btn-primary" onclick="goToStep2()">Continue to Configure →</button></div>
+          <div class="btn-row"><button class="btn btn-secondary" onclick="startOver()">↺ Restart</button><button class="btn btn-primary" onclick="goToStep2()">Continue to Configure →</button></div>
         </div>
       </div>
     </div>
@@ -281,6 +281,7 @@
         <div class="preview-label">Engagements in this load</div>
         <div class="table-wrap"><table id="engagementSummaryTable"></table></div>
         <div class="btn-row">
+          <button class="btn btn-secondary" onclick="startOver()">↺ Restart</button>
           <button class="btn btn-secondary" onclick="goToStep1()">← Back</button>
           <button class="btn btn-primary" id="processBtn" onclick="processData()" disabled>Run Merge →</button>
         </div>
@@ -318,6 +319,7 @@
             <div class="text-sm text-muted mt-12">Upload this CSV in any child engagement → Utilities → Bulk Link Requests to Rows</div>
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button class="btn btn-secondary" onclick="startOver()">↺ Restart</button>
             <button class="btn btn-secondary" onclick="goToStep2()">← Back</button>
             <button class="btn btn-success" onclick="downloadCSV()">⬇ Download Upload CSV</button>
             <button class="btn btn-primary" onclick="goToStep4()">Verify Rollover →</button>
@@ -361,6 +363,7 @@
           <div>Enter one pair per linked engagement (e.g. <code style="font-size:11px;">57120 → 66517</code> and <code style="font-size:11px;">57122 → 66518</code> on separate rows). Region: <strong id="regionLabel">US</strong></div>
         </div>
         <div class="btn-row">
+          <button class="btn btn-secondary" onclick="startOver()">↺ Restart</button>
           <button class="btn btn-secondary" onclick="goToStep3()">← Back</button>
           <button class="btn btn-primary" id="runQaBtn" onclick="runQA()">Run QA Checks →</button>
           <button class="btn btn-secondary hidden" id="clearQaBtn" onclick="clearQA()">Clear Results</button>
